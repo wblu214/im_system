@@ -30,15 +30,10 @@ func NewServer(ip string, port int) *Server {
 }
 
 func (this *Server) Handler(conn net.Conn) {
-	fmt.Println("socket连接建立成功！！！")
+	//fmt.Println("socket连接建立成功！！！")
 
-	user := NewUser(conn)
-	// 用户上线，加入onlineMap
-	this.mapLock.Lock()
-	this.OnlineMap[user.Name] = user
-	this.mapLock.Unlock()
-	//广播当前消息，给其他人
-	this.BroadCast(user, "用户已上线")
+	user := NewUser(conn, this)
+	user.online()
 
 	// 接收用户发送的消息
 	go func() {
@@ -46,14 +41,14 @@ func (this *Server) Handler(conn net.Conn) {
 		for {
 			n, err := conn.Read(buf)
 			if n == 0 {
-				this.BroadCast(user, "用户下线")
+				user.offline()
 			}
 			if err != nil && err != io.EOF {
 				fmt.Println("io read err", err)
 				return
 			}
 			msg := string(buf[:n-1])
-			this.BroadCast(user, msg)
+			user.doMessage(msg)
 		}
 	}()
 }

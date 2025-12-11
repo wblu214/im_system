@@ -1,23 +1,28 @@
 package main
 
-import "net"
+import (
+	"net"
+	"strings"
+)
 
 type User struct {
-	Name string
-	Addr string
-	C    chan string
-	conn net.Conn
+	Name   string
+	Addr   string
+	C      chan string
+	conn   net.Conn
+	server *Server
 }
 
 // NewUser 创建一个用户的API
-func NewUser(conn net.Conn) *User {
+func NewUser(conn net.Conn, server *Server) *User {
 	userAddr := conn.RemoteAddr().String()
 
 	user := &User{
-		Name: "name_" + userAddr,
-		Addr: userAddr,
-		C:    make(chan string),
-		conn: conn,
+		Name:   "name_" + userAddr,
+		Addr:   userAddr,
+		C:      make(chan string),
+		conn:   conn,
+		server: server,
 	}
 
 	// 单独起一个协程，来监听用户的channel
@@ -43,5 +48,60 @@ func (this *User) ListenMessage() {
 		if err != nil {
 			return
 		}
+	}
+}
+
+// 用户上线
+func (user *User) online() {
+	// 用户上线，加入onlineMap
+	user.server.mapLock.Lock()
+	user.server.OnlineMap[user.Name] = user
+	user.server.mapLock.Unlock()
+	//广播当前消息，给其他人
+	user.server.BroadCast(user, "用户已上线")
+}
+
+// 用户下线
+func (user *User) offline() {
+	// 用户下线，删除onlineMap
+	user.server.mapLock.Lock()
+	delete(user.server.OnlineMap, user.Name)
+	user.server.mapLock.Unlock()
+	//广播当前消息，给其他人
+	user.server.BroadCast(user, "用户已下线")
+}
+
+// 用户处理消息
+func (this *User) doMessage(msg string) {
+	if msg == "who" {
+		this.server.mapLock.Lock()
+		for name, _ := range this.server.OnlineMap {
+			onlineMsg := "用户" + name + "在线" + "\n"
+			this.sendMessage(onlineMsg)
+		}
+		this.server.mapLock.Unlock()
+	} else if len(msg) > 7 && msg[:7] == "rename|" {
+		// 消息格式"rename|张三"
+		newName := strings.Split(msg, "|")[1]
+
+		_, ok := this.server.OnlineMap[newName]
+		if ok {
+			this.sendMessage("当前用户名被使用")
+		} else {
+			this.server.mapLock.Lock()
+			delete(this.server.OnlineMap, this.Name)
+			this.server.OnlineMap[newName] = this
+			this.server.mapLock.Unlock()
+		}
+	} else {
+		this.server.BroadCast(this, msg)
+	}
+}
+
+// 给当前用户对应的客户端发消息
+func (this *User) sendMessage(msg string) {
+	_, err := this.conn.Write([]byte(msg))
+	if err != nil {
+		return
 	}
 }
