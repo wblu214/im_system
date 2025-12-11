@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 type Server struct {
@@ -35,6 +36,7 @@ func (this *Server) Handler(conn net.Conn) {
 	user := NewUser(conn, this)
 	user.online()
 
+	isLive := make(chan bool)
 	// 接收用户发送的消息
 	go func() {
 		defer func() {
@@ -47,7 +49,6 @@ func (this *Server) Handler(conn net.Conn) {
 		buf := make([]byte, 4096)
 		for {
 			n, err := conn.Read(buf)
-
 			// 先处理错误
 			if err != nil {
 				if err != io.EOF {
@@ -55,7 +56,6 @@ func (this *Server) Handler(conn net.Conn) {
 				}
 				return
 			}
-
 			if n == 0 {
 				return
 			}
@@ -69,9 +69,27 @@ func (this *Server) Handler(conn net.Conn) {
 				}
 			}
 			user.doMessage(msg)
+			isLive <- true
 		}
 	}()
 
+	// 持续监听用户活动
+	for {
+		select {
+		case <-isLive:
+			//不用做任何操作，继续循环
+		case <-time.After(time.Second * 100):
+			user.sendMessage("由于长时间未操作，你被强制踢出!!!")
+			//关闭通道
+			close(user.C)
+			// 释放链接
+			err := conn.Close()
+			if err != nil {
+				return
+			}
+			return
+		}
+	}
 }
 
 // BroadCast 方法用于向服务器广播消息

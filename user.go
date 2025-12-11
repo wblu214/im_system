@@ -95,6 +95,24 @@ func (this *User) doMessage(msg string) {
 			this.Name = newName
 			this.sendMessage("您已经成功修改用户名为：" + newName + "\n")
 		}
+	} else if len(msg) > 4 && msg[:3] == "to|" {
+		// 消息格式"to|张三|msg"
+		peopleName := strings.Split(msg, "|")[1]
+		if peopleName == "" {
+			this.sendMessage("您输入的格式有误，请使用 \"to|张三|你好啊\"，格式 \n")
+			return
+		}
+		people, ok := this.server.OnlineMap[peopleName]
+		if !ok {
+			this.sendMessage("该用户名不存在 \n")
+			return
+		}
+		p_msg := strings.Split(msg, "|")[2]
+		if p_msg == "" {
+			this.sendMessage("您输入的格式有误，请使用 \"to|张三|你好啊\"，格式 \n")
+			return
+		}
+		people.sendMessage(this.Name + "对您说：" + p_msg + "\n")
 	} else {
 		this.server.BroadCast(this, msg)
 	}
