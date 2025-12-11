@@ -1,0 +1,115 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"sync"
+)
+
+type Server struct {
+	IP   string
+	Port int
+	//在线用户的列表
+	OnlineMap map[string]*User
+	mapLock   sync.RWMutex
+	//消息广播的channel
+	Message chan string
+}
+
+// NewServer 创建一个server的接口
+func NewServer(ip string, port int) *Server {
+	server := &Server{
+		IP:        ip,
+		Port:      port,
+		OnlineMap: make(map[string]*User),
+		Message:   make(chan string),
+	}
+	return server
+}
+
+func (this *Server) Handler(conn net.Conn) {
+	fmt.Println("socket连接建立成功！！！")
+
+	user := NewUser(conn)
+	// 用户上线，加入onlineMap
+	this.mapLock.Lock()
+	this.OnlineMap[user.Name] = user
+	this.mapLock.Unlock()
+	//广播当前消息，给其他人
+	this.BroadCast(user, "用户已上线")
+
+	// 接收用户发送的消息
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := conn.Read(buf)
+			if n == 0 {
+				this.BroadCast(user, "用户下线")
+			}
+			if err != nil && err != io.EOF {
+				fmt.Println("io read err", err)
+				return
+			}
+			msg := string(buf[:n-1])
+			this.BroadCast(user, msg)
+		}
+	}()
+}
+
+// BroadCast 方法用于向服务器广播消息
+func (this *Server) BroadCast(user *User, msg string) {
+	// 将用户地址、用户名和消息内容用"|"符号连接成一个字符串
+	sendMsg := user.Addr + "|" + user.Name + "|" + msg
+	// 将格式化后的消息发送到服务器的消息通道
+	this.Message <- sendMsg
+}
+
+// ListenMessage 监听Message广播消息的go routine，一旦有消息就发送给全部在线User
+func (this *Server) ListenMessage() {
+	for {
+		msg := <-this.Message
+		this.mapLock.Lock()
+		for name, user := range this.OnlineMap {
+			user.C <- msg
+			log.Println("当前广播用户为", name)
+		}
+		this.mapLock.Unlock()
+	}
+}
+
+// Start 启动服务器的接口
+func (this *Server) Start() {
+	//监听socket
+	listenr, err := net.Listen("tcp", fmt.Sprintf("%s:%d", this.IP, this.Port))
+
+	if err != nil {
+		fmt.Println("listen this port error:", err)
+		return
+	}
+
+	// 记得close listen 套接字
+	defer func(listenr net.Listener) {
+		err := listenr.Close()
+		if err != nil {
+			fmt.Println("close socket error:", err)
+			return
+		}
+	}(listenr)
+
+	go this.ListenMessage()
+	for {
+		//accept
+		conn, err := listenr.Accept()
+		if err != nil {
+			fmt.Println("accept socket error:", err)
+			continue
+		}
+		// do handler
+		go this.Handler(conn)
+	}
+
+	//close listen socket
+
+}
