@@ -76,7 +76,7 @@ func (this *User) doMessage(msg string) {
 	if msg == "who" {
 		this.server.mapLock.Lock()
 		for name, _ := range this.server.OnlineMap {
-			onlineMsg := "用户" + name + "在线" + "\n"
+			onlineMsg := "用户：" + name + " 在线" + "\n"
 			this.sendMessage(onlineMsg)
 		}
 		this.server.mapLock.Unlock()
@@ -92,6 +92,8 @@ func (this *User) doMessage(msg string) {
 			delete(this.server.OnlineMap, this.Name)
 			this.server.OnlineMap[newName] = this
 			this.server.mapLock.Unlock()
+			this.Name = newName
+			this.sendMessage("您已经成功修改用户名为：" + newName + "\n")
 		}
 	} else {
 		this.server.BroadCast(this, msg)

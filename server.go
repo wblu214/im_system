@@ -37,20 +37,41 @@ func (this *Server) Handler(conn net.Conn) {
 
 	// 接收用户发送的消息
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Recovered from panic: %v\n", r)
+			}
+			user.offline() // 确保用户下线
+		}()
+
 		buf := make([]byte, 4096)
 		for {
 			n, err := conn.Read(buf)
-			if n == 0 {
-				user.offline()
-			}
-			if err != nil && err != io.EOF {
-				fmt.Println("io read err", err)
+
+			// 先处理错误
+			if err != nil {
+				if err != io.EOF {
+					fmt.Println("io read err", err)
+				}
 				return
 			}
-			msg := string(buf[:n-1])
+
+			if n == 0 {
+				return
+			}
+			// 安全地处理消息，避免n-1可能导致的越界
+			var msg string
+			if n > 0 {
+				msg = string(buf[:n])
+				// 如果需要去除最后一个字符
+				if len(msg) > 0 {
+					msg = msg[:len(msg)-1]
+				}
+			}
 			user.doMessage(msg)
 		}
 	}()
+
 }
 
 // BroadCast 方法用于向服务器广播消息
