@@ -3,8 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"net"
-	"time"
+	"os"
 )
 
 type Client struct {
@@ -67,19 +68,102 @@ func (client *Client) updateName() bool {
 	return true
 
 }
+func (client *Client) DealResponse() {
+	//永久阻塞监听网络，conn有数据就copy到stdout标准输出上
+	io.Copy(os.Stdout, client.conn)
+}
+
+func (client *Client) PublicChat() {
+	var chatStr string
+	fmt.Println(">>>请输入聊天内容...")
+	_, err := fmt.Scanln(&chatStr)
+	if err != nil {
+		return
+	}
+	for chatStr != "exit" {
+		//发送服务器
+
+		//消息不为空则发送
+		if len(chatStr) != 0 {
+			sendMsg := chatStr + "\n"
+			_, err := client.conn.Write([]byte(sendMsg))
+			if err != nil {
+				fmt.Println("conn.Write err: ", err)
+				break
+			}
+		}
+		chatStr = ""
+		fmt.Println(">>>请输入聊天内容...")
+		_, err := fmt.Scanln(&chatStr)
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (client *Client) PrivateChat() {
+	client.queryUsers()
+	var peopleName string
+	var chatStr string
+
+	fmt.Println(">>>请输入聊天用户名，exit退出!!")
+	fmt.Scanln(&peopleName)
+
+	for peopleName != "exit" {
+		fmt.Println(">>>请输入聊天内容，exit退出!!")
+		fmt.Scanln(&chatStr)
+		//消息不为空则发送
+		for chatStr != "exit" {
+			if len(chatStr) != 0 {
+				sendMsg := "to|" + peopleName + "|" + chatStr + "\n\n"
+				_, err := client.conn.Write([]byte(sendMsg))
+				if err != nil {
+					fmt.Println("conn.Write err: ", err)
+					break
+				}
+			}
+			chatStr = ""
+			fmt.Println(">>>请输入聊天内容，exit退出!!")
+			_, err := fmt.Scanln(&chatStr)
+			if err != nil {
+				return
+			}
+		}
+
+		peopleName = ""
+		client.queryUsers()
+		fmt.Println(">>>请输入聊天用户名，exit退出!!")
+		fmt.Scanln(&peopleName)
+	}
+
+}
+func (client *Client) queryUsers() {
+	sendMsg := "who\n"
+	_, err := client.conn.Write([]byte(sendMsg))
+	if err != nil {
+		fmt.Println("conn.Write err: ", err)
+		return
+	}
+}
 func (client *Client) Run() {
-	for client.flag != 0 {
+	for {
 		for client.menu() != true {
 		}
 		//处理不同模式
 		switch client.flag {
+		case 0:
+			//退出
+			fmt.Println("正在退出...")
+			return
 		case 1:
 			//公聊模式
 			fmt.Println("公聊模式...")
+			client.PublicChat()
 			break
 		case 2:
 			//私聊模式
 			fmt.Println("私聊模式...")
+			client.PrivateChat()
 			break
 		case 3:
 			//更新用户名
@@ -109,7 +193,15 @@ func main() {
 		fmt.Println(">>>连接服务器失败！！！")
 		return
 	}
+	//单独启动一个协程去处理server的回执消息
+	go client.DealResponse()
+
 	fmt.Println(">>>连接服务器成功！！！")
 	client.Run()
-	time.Sleep(time.Second * 100000)
+
+	// 用户选择退出后，关闭连接
+	if client.conn != nil {
+		client.conn.Close()
+	}
+	fmt.Println(">>>已退出聊天系统！！！")
 }
